@@ -13,9 +13,17 @@
 // Needed to obtain the Navigation Controller
 #import "AppDelegate.h"
 
+#import "GPLoadingBar.h"
+#import "LevelItemElement.h"
+
 #pragma mark - HelloWorldLayer
 
-// HelloWorldLayer implementation
+@interface HelloWorldLayer()
+
+@property (nonatomic, retain) GPLoadingBar *loadingBar;
+
+@end
+
 @implementation HelloWorldLayer
 
 // Helper class method that creates a Scene with the HelloWorldLayer as the only child.
@@ -34,84 +42,137 @@
 	return scene;
 }
 
+- (BOOL)prepareProgressImage:(NSString *)imageName patternImage:(NSString *)patternImage
+{
+    //base image data extraction
+    CGImageRef imageBaseRef = [[UIImage imageNamed:imageName] CGImage];
+    NSUInteger baseImageWidth = CGImageGetWidth(imageBaseRef);
+    NSUInteger baseImageHeight = CGImageGetHeight(imageBaseRef);
+    CFDataRef basePixelData = CGDataProviderCopyData(CGImageGetDataProvider(imageBaseRef));
+    const UInt8* baseData = CFDataGetBytePtr(basePixelData);
+    int baseImageDataLength = CFDataGetLength(basePixelData);
+    int baseImageOnePixelSize = baseImageDataLength / baseImageHeight / baseImageWidth;
+
+    //pattern image data extraction
+    CGImageRef imagePatternRef = [[UIImage imageNamed:patternImage] CGImage];
+    NSUInteger patternImageWidth = CGImageGetWidth(imagePatternRef);
+    NSUInteger patternImageHeight = CGImageGetHeight(imagePatternRef);
+    CFDataRef patternPixelData = CGDataProviderCopyData(CGImageGetDataProvider(imagePatternRef));
+    const UInt8* patternData = CFDataGetBytePtr(patternPixelData);
+
+    int sizeOfArray = baseImageWidth * baseImageHeight * baseImageOnePixelSize;
+    UInt8 *prepairedPatternData = malloc(sizeOfArray);
+
+    int xOffset = ((patternImageWidth - baseImageWidth) / 2);
+    int yOffset = ((patternImageHeight - baseImageHeight) / 2);
+
+    int dataIndex = 0;
+    for (int y = 0; y < baseImageHeight; y++) {
+        for (int x = 0; x < baseImageWidth; x++) {
+            int patternPixelDataIndex = (y * patternImageWidth * baseImageOnePixelSize) + (yOffset * patternImageWidth * baseImageOnePixelSize) + (x * baseImageOnePixelSize) + (xOffset * baseImageOnePixelSize);
+            prepairedPatternData[dataIndex] = patternData[patternPixelDataIndex];
+            prepairedPatternData[dataIndex+1] = patternData[patternPixelDataIndex+1];
+            prepairedPatternData[dataIndex+2] = patternData[patternPixelDataIndex+2];
+            prepairedPatternData[dataIndex+3] = patternData[patternPixelDataIndex+3];
+
+            dataIndex += baseImageOnePixelSize;
+        }
+    }
+
+    //rewriting pixel data
+    int byteIndex = 0;
+    for (int ii = 0 ; ii < baseImageWidth * baseImageHeight ; ++ii)
+    {
+        prepairedPatternData[byteIndex + 3] = baseData[byteIndex + 3];
+        byteIndex += baseImageOnePixelSize;
+    }
+
+
+	CGDataProviderRef provider = CGDataProviderCreateWithData(NULL, prepairedPatternData, sizeOfArray, NULL);
+
+	CGColorSpaceRef colorSpaceRef = CGColorSpaceCreateDeviceRGB();
+	if(colorSpaceRef == NULL) {
+		NSLog(@"Error allocating color space");
+        CFRelease(basePixelData);
+        CFRelease(patternPixelData);
+		CGDataProviderRelease(provider);
+		return nil;
+	}
+
+	CGBitmapInfo bitmapInfo = kCGBitmapByteOrderDefault | kCGImageAlphaPremultipliedLast;
+	CGColorRenderingIntent renderingIntent = kCGRenderingIntentDefault;
+
+	CGImageRef iref = CGImageCreate(baseImageWidth,
+                                    baseImageHeight,
+                                    8,
+                                    32,
+                                    baseImageOnePixelSize * baseImageWidth,
+                                    colorSpaceRef,
+                                    bitmapInfo, 
+                                    provider,	// data provider
+                                    NULL,		// decode
+                                    YES,			// should interpolate
+                                    renderingIntent);
+
+    UIImage *uiimage = [UIImage imageWithCGImage:iref];
+
+    //save new image
+    NSURL *filePath = [[self applicationDocumentsDirectory] URLByAppendingPathComponent:@"img.png"];
+    [UIImageJPEGRepresentation(uiimage, 100) writeToFile:filePath.path atomically:YES];
+
+    CGColorSpaceRelease(colorSpaceRef);
+	CGImageRelease(iref);
+    CFRelease(basePixelData);
+    CFRelease(patternPixelData);
+	CGDataProviderRelease(provider);
+    free(prepairedPatternData);
+
+    return YES;
+}
+
+- (NSURL *)applicationDocumentsDirectory
+{
+    return [[[NSFileManager defaultManager] URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask] lastObject];
+}
+
 // on "init" you need to initialize your instance
 -(id) init
 {
 	// always call "super" init
 	// Apple recommends to re-assign "self" with the "super's" return value
 	if( (self=[super init]) ) {
-		
-		// create and initialize a Label
-		CCLabelTTF *label = [CCLabelTTF labelWithString:@"Hello World" fontName:@"Marker Felt" fontSize:64];
 
-		// ask director for the window size
-		CGSize size = [[CCDirector sharedDirector] winSize];
-	
-		// position the label on the center of the screen
-		label.position =  ccp( size.width /2 , size.height/2 );
-		
-		// add the label as a child to this Layer
-		[self addChild: label];
-		
-		
-		
-		//
-		// Leaderboards and Achievements
-		//
-		
-		// Default font size will be 28 points.
-		[CCMenuItemFont setFontSize:28];
-		
-		// Achievement Menu Item using blocks
-		CCMenuItem *itemAchievement = [CCMenuItemFont itemWithString:@"Achievements" block:^(id sender) {
-			
-			
-			GKAchievementViewController *achivementViewController = [[GKAchievementViewController alloc] init];
-			achivementViewController.achievementDelegate = self;
-			
-			AppController *app = (AppController*) [[UIApplication sharedApplication] delegate];
-			
-			[[app navController] presentModalViewController:achivementViewController animated:YES];
-			
-			[achivementViewController release];
-		}
-									   ];
+        [self prepareProgressImage:@"Placeholder.png" patternImage:@"Placeholder_green.png"];
 
-		// Leaderboard Menu Item using blocks
-		CCMenuItem *itemLeaderboard = [CCMenuItemFont itemWithString:@"Leaderboard" block:^(id sender) {
-			
-			
-			GKLeaderboardViewController *leaderboardViewController = [[GKLeaderboardViewController alloc] init];
-			leaderboardViewController.leaderboardDelegate = self;
-			
-			AppController *app = (AppController*) [[UIApplication sharedApplication] delegate];
-			
-			[[app navController] presentModalViewController:leaderboardViewController animated:YES];
-			
-			[leaderboardViewController release];
-		}
-									   ];
-		
-		CCMenu *menu = [CCMenu menuWithItems:itemAchievement, itemLeaderboard, nil];
-		
-		[menu alignItemsHorizontallyWithPadding:20];
-		[menu setPosition:ccp( size.width/2, size.height/2 - 50)];
-		
-		// Add the menu to the layer
-		[self addChild:menu];
+        GPLoadingBar *loadingBar = [GPLoadingBar positionedLoadingBarWithBar:@"img.png"
+                                                                       inset:@"Placeholder.png"
+                                                                        mask:@"Placeholder_mask.png"
+                                                           showProgressValue:YES];
+        loadingBar.barType = kBarTypeRectangleVertical;
+        loadingBar.loadingProgress = 0;
+        loadingBar.position = ccp(500, 500);
+        self.loadingBar = loadingBar;
+        [self addChild:loadingBar];
 
-	}
+        LevelItemElement *button = [LevelItemElement buttonWithLevelInfo:nil];
+        button.position = ccp(100, 100);
+        [self addChild:button];
+    }
 	return self;
 }
+- (void)onEnterTransitionDidFinish
+{
+    [self schedule:@selector(increaseLoadingProgress) interval:0.2];
+}
 
-// on "dealloc" you need to release all your retained objects
+- (void)increaseLoadingProgress
+{
+    self.loadingBar.loadingProgress += 1;
+}
+
 - (void) dealloc
 {
-	// in case you have something to dealloc, do it in this method
-	// in this particular example nothing needs to be released.
-	// cocos2d will automatically release all the children (Label)
-	
-	// don't forget to call "super dealloc"
+    self.loadingBar = nil;
 	[super dealloc];
 }
 
